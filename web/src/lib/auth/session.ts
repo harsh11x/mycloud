@@ -37,11 +37,13 @@ export async function createSession(
  * Resolves a raw session token to its user. Enforces idle and absolute expiry,
  * revocation, and account status. Returns null when the session is not usable.
  */
-export async function resolveSession(token: string | undefined, db: Db = getDb()) {
+export async function resolveSession(token: string | undefined, db?: Db) {
+  // No cookie means no session to look up, so don't open a connection just to answer that.
   if (!token) return null;
+  const conn = db ?? getDb();
   const tokenHash = hashToken(token);
   const now = new Date();
-  const rows = await db
+  const rows = await conn
     .select({
       sessionId: sessions.id,
       lastSeenAt: sessions.lastSeenAt,
@@ -66,14 +68,14 @@ export async function resolveSession(token: string | undefined, db: Db = getDb()
   const row = rows[0];
   if (!row) return null;
   if (now.getTime() - row.lastSeenAt.getTime() > SESSION_IDLE_MS) {
-    await revokeSessionById(row.sessionId, db);
+    await revokeSessionById(row.sessionId, conn);
     return null;
   }
   if (row.status !== "active") {
-    await revokeSessionById(row.sessionId, db);
+    await revokeSessionById(row.sessionId, conn);
     return null;
   }
-  await db.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, row.sessionId));
+  await conn.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, row.sessionId));
   return {
     sessionId: row.sessionId,
     mfaVerifiedAt: row.mfaVerifiedAt,
